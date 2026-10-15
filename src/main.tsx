@@ -1,3 +1,20 @@
+import { BillsPanel } from "./BillsPanel";
+import { BudgetPanel } from "./BudgetPanel";
+import { AccountInsights } from "./AccountInsights";
+import { LoanPaymentEditor } from "./LoanPaymentEditor";
+import {
+  billStatus,
+  billLinks,
+  billPaymentTotal,
+  categorySpending,
+  categoryLimit,
+  categoryIds,
+  totalBudget,
+  removeTransactions,
+  restoreTransactions,
+  replaceTransaction,
+  actualInterest,
+} from "./planning";
 import { DeleteAccountDialog } from "./DeleteAccountDialog";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -38,7 +55,7 @@ import {
   nextMonthly,
   validate,
 } from "./ledger";
-import { cloud, load, save } from "./storage";
+import { cloud, load, save, reviewMode } from "./storage";
 import "@fontsource/dm-sans/400.css";
 import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
@@ -50,7 +67,9 @@ import "./style.css";
 const ImportDialog = React.lazy(() =>
   import("./ImportDialog").then((module) => ({ default: module.ImportDialog })),
 );
-const demoKey = "hearth-fictional-demo-v1";
+const demoKey = reviewMode
+  ? "hearth-fictional-review-v1"
+  : "hearth-fictional-demo-v1";
 const pages = [
   "Dashboard",
   "Transactions",
@@ -81,10 +100,20 @@ function App() {
     [busy, setBusy] = useState(false),
     [dark, setDark] = useState(localStorage.getItem("hearth-theme") === "dark"),
     [modal, setModal] = useState<
-      "transaction" | "account" | "bill" | "import" | "deleteAccount" | null
+      | "transaction"
+      | "account"
+      | "bill"
+      | "import"
+      | "deleteAccount"
+      | "loanPayment"
+      | null
     >(null),
     [editing, setEditing] = useState<Transaction | undefined>(),
     [editingAccount, setEditingAccount] = useState<Account | undefined>(),
+    [loanDialog, setLoanDialog] = useState<{
+      loan: string;
+      payment?: string;
+    } | null>(null),
     [search, setSearch] = useState(""),
     [filterAccount, setFilterAccount] = useState(""),
     [filterType, setFilterType] = useState(""),
@@ -226,16 +255,14 @@ function App() {
           t.account === filterAccount ||
           t.to === filterAccount) &&
         (!filterType || t.type === filterType) &&
-        (!filterCategory || t.category === filterCategory) &&
+        (!filterCategory ||
+          categoryIds(data, filterCategory).includes(t.category)) &&
         (!startDate || t.date >= startDate) &&
         (!endDate || t.date <= endDate) &&
         `${t.payee} ${t.notes}`.toLowerCase().includes(search.toLowerCase()),
     )
     .sort((a, b) => b.date.localeCompare(a.date));
-  const limit = (id: string) =>
-    data.budgets[month]?.[id] ??
-    data.categories.find((c) => c.id === id)?.limit ??
-    0;
+  const limit = (id: string) => categoryLimit(data, month, id);
   function addTransaction() {
     setEditing(undefined);
     setModal("transaction");
@@ -243,58 +270,12 @@ function App() {
   async function deleteTransaction(t: Transaction) {
     if (
       !confirm(
-        `Delete ${t.payee || "this transaction"}? Balances will be recalculated. Linked bills will become unpaid.`,
+        `Delete ${t.payee || "this transaction"}? All parts of a linked loan payment are deleted together. Balances and bill payment status recalculate. You can restore deleted transactions from Transactions.`,
       )
     )
       return;
-    await commit({
-      ...data,
-      transactions: data.transactions.filter((x) => x.id !== t.id),
-      bills: data.bills.map((b) =>
-        b.paidTransaction === t.id ? { ...b, paidTransaction: undefined } : b,
-      ),
-    });
-  }
-  async function payBill(b: Bill) {
-    const actual = prompt(
-      "Actual payment amount in dollars",
-      String(b.amount / 100),
-    );
-    if (actual === null) return;
     try {
-      const amount = cents(actual);
-      if (amount <= 0) throw Error("Payment must be positive.");
-      const date = prompt("Actual payment date (YYYY-MM-DD)", today());
-      if (!date) return;
-      const t: Transaction = {
-        id: uid(),
-        date,
-        amount,
-        type: "expense",
-        account: b.account,
-        category: b.category,
-        payee: b.name,
-        notes: "Bill payment",
-      };
-      const bills = data.bills.map((x) =>
-        x.id === b.id ? { ...x, paidTransaction: t.id } : x,
-      );
-      const nextDate = nextMonthly(b.date, b.anchor);
-      const seriesId = b.seriesId || b.id;
-      if (
-        b.frequency === "monthly" &&
-        !bills.some(
-          (x) => (x.seriesId || x.id) === seriesId && x.date === nextDate,
-        )
-      )
-        bills.push({
-          ...b,
-          id: uid(),
-          seriesId,
-          date: nextDate,
-          paidTransaction: undefined,
-        });
-      await commit({ ...data, transactions: [...data.transactions, t], bills });
+      await commit(removeTransactions(data, [t.id]));
     } catch (e) {
       setError(message(e));
     }
@@ -353,6 +334,12 @@ function App() {
         <main className="login">
           <span className="eyebrow">WELCOME HOME</span>
           <h2>Your money, in view.</h2>
+          {reviewMode && (
+            <div className="notice">
+              Review build · fictional data only. Cloud sign-in is disabled; use
+              Explore fictional demo.
+            </div>
+          )}
           <p>Sign in to your private household budget.</p>
           {error && (
             <div role="alert" className="alert">
@@ -384,6 +371,7 @@ function App() {
               Email address
               <input
                 name="email"
+                disabled={reviewMode}
                 type="email"
                 autoComplete="username"
                 required
@@ -394,13 +382,14 @@ function App() {
               Password
               <input
                 name="password"
+                disabled={reviewMode}
                 type="password"
                 autoComplete="current-password"
                 required
                 minLength={8}
               />
             </label>
-            <button className="primary" disabled={busy}>
+            <button className="primary" disabled={busy || reviewMode}>
               Sign in <ArrowUpRight size={17} />
             </button>
           </form>
@@ -497,7 +486,7 @@ function App() {
         <main className="content">
           {mode === "demo" && (
             <div className="demo-banner">
-              FICTIONAL DEMO{" "}
+              {reviewMode ? "REVIEW MODE · CLOUD DISABLED" : "FICTIONAL DEMO"}{" "}
               <span>
                 Explore freely. Saved only on this browser; no cross-device
                 sync.
@@ -588,14 +577,28 @@ function App() {
                 />
                 <Stat
                   title="BUDGET REMAINING"
-                  value={money(
-                    data.categories.reduce((n, c) => n + limit(c.id), 0) -
-                      total.spent,
-                  )}
+                  value={money(totalBudget(data, month) - total.spent)}
                   detail="Your plan, separate from balances"
                   icon={<ChartPie />}
                 />
               </div>
+              <section className="panel monthly-net">
+                <h2>
+                  Monthly net income:{" "}
+                  <span
+                    className={total.income - total.spent < 0 ? "warning" : ""}
+                  >
+                    {money(total.income - total.spent)}
+                  </span>
+                </h2>
+                <p>
+                  Actual income minus expenses after refunds. Transfers and
+                  opening balances do not change this number. Actual interest
+                  charged: {money(actualInterest(data, month, "charged"))};
+                  interest earned:{" "}
+                  {money(actualInterest(data, month, "earned"))}.
+                </p>
+              </section>
               <div className="dashboard-grid">
                 <section className="panel budget-panel">
                   <PanelTitle
@@ -605,10 +608,10 @@ function App() {
                     onClick={() => setPage("Budget")}
                   />
                   {data.categories
-                    .filter((c) => !c.archived)
+                    .filter((c) => !c.archived && !c.parentId)
                     .slice(0, 5)
                     .map((c, i) => {
-                      const used = spent(data.transactions, month, c.id),
+                      const used = categorySpending(data, month, c.id),
                         max = limit(c.id);
                       return (
                         <div className="budget-row" key={c.id}>
@@ -712,7 +715,7 @@ function App() {
                     onClick={() => setPage("Bills")}
                   />
                   {data.bills
-                    .filter((b) => !b.paidTransaction)
+                    .filter((b) => billStatus(data, b) !== "Paid")
                     .sort((a, b) => a.date.localeCompare(b.date))
                     .slice(0, 4)
                     .map((b) => (
@@ -739,7 +742,7 @@ function App() {
                         <strong>{money(b.amount)}</strong>
                       </div>
                     ))}
-                  {!data.bills.some((b) => !b.paidTransaction) && (
+                  {!data.bills.some((b) => billStatus(data, b) !== "Paid") && (
                     <Empty text="Nothing due. Add a bill to keep track of upcoming payments." />
                   )}
                   <div className="panel-footer">
@@ -780,6 +783,26 @@ function App() {
                       Opening {money(a.opening)} on {a.date}
                     </p>
                     <small>Negative balances represent money owed.</small>
+                    <AccountInsights
+                      account={a}
+                      data={data}
+                      month={month}
+                      busy={busy}
+                      onPay={() => {
+                        setLoanDialog({ loan: a.id });
+                        setModal("loanPayment");
+                        setError("");
+                      }}
+                      onEdit={(id) => {
+                        setLoanDialog({ loan: a.id, payment: id });
+                        setModal("loanPayment");
+                        setError("");
+                      }}
+                      onDelete={(id) => {
+                        const t = data.transactions.find((t) => t.id === id);
+                        if (t) void deleteTransaction(t);
+                      }}
+                    />
                     <button
                       className="secondary account-edit-button"
                       disabled={busy}
@@ -922,8 +945,19 @@ function App() {
                             <button
                               aria-label={`Edit ${t.payee}`}
                               onClick={() => {
-                                setEditing(t);
-                                setModal("transaction");
+                                const payment = data.loanPayments?.find((p) =>
+                                  p.transactionIds.includes(t.id),
+                                );
+                                if (payment) {
+                                  setLoanDialog({
+                                    loan: payment.loan,
+                                    payment: payment.id,
+                                  });
+                                  setModal("loanPayment");
+                                } else {
+                                  setEditing(t);
+                                  setModal("transaction");
+                                }
                               }}
                             >
                               <Pencil size={16} />
@@ -947,192 +981,46 @@ function App() {
               )}
             </section>
           )}
-          {page === "Budget" && (
-            <section className="panel">
-              <PanelTitle
-                title="Monthly category limits"
-                sub="Actual spending is expenses less refunds. Transfers are excluded."
-              />
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => {
-                  const [y, m] = month.split("-").map(Number);
-                  const prev = new Date(Date.UTC(y, m - 2, 1))
-                    .toISOString()
-                    .slice(0, 7);
-                  void commit({
-                    ...data,
-                    budgets: {
-                      ...data.budgets,
-                      [month]:
-                        data.budgets[prev] ||
-                        Object.fromEntries(
-                          data.categories.map((c) => [c.id, c.limit]),
-                        ),
-                    },
-                  });
-                }}
-              >
-                Copy previous month
-              </button>
-              {data.categories.map((c) => (
-                <div className="budget-edit" key={c.id}>
-                  <strong>
-                    {c.name}
-                    {c.archived ? " (archived)" : ""}
-                  </strong>
+          {page === "Transactions" && !!data.deletedTransactions?.length && (
+            <section className="panel recovery">
+              <h2>Recently deleted transactions</h2>
+              <p>
+                Restoring also restores valid bill and loan links. Deleted
+                accounts/categories must exist before a transaction can be
+                restored.
+              </p>
+              {data.deletedTransactions.map((bundle) => (
+                <div className="recovery-row" key={bundle.id}>
                   <span>
-                    Spent {money(spent(data.transactions, month, c.id))}
+                    {bundle.transactions.map((t) => t.payee).join(" + ")} ·{" "}
+                    {bundle.deletedAt.slice(0, 10)}
                   </span>
-                  <span
-                    className={
-                      spent(data.transactions, month, c.id) > limit(c.id)
-                        ? "warning"
-                        : ""
-                    }
-                  >
-                    Remaining{" "}
-                    {money(limit(c.id) - spent(data.transactions, month, c.id))}
-                  </span>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
+                  <button
+                    disabled={busy}
+                    onClick={() => {
                       try {
-                        const n = cents(
-                          String(new FormData(e.currentTarget).get("limit")),
-                        );
-                        if (n < 0) throw Error("Limit cannot be negative");
-                        void commit({
-                          ...data,
-                          budgets: {
-                            ...data.budgets,
-                            [month]: { ...data.budgets[month], [c.id]: n },
-                          },
-                        });
+                        void commit(restoreTransactions(data, bundle.id));
                       } catch (e) {
                         setError(message(e));
                       }
                     }}
                   >
-                    <label className="sr-only" htmlFor={c.id}>
-                      Limit for {c.name}
-                    </label>
-                    <input
-                      id={c.id}
-                      name="limit"
-                      key={month + limit(c.id)}
-                      defaultValue={(limit(c.id) / 100).toFixed(2)}
-                      inputMode="decimal"
-                      required
-                    />
-                    <button disabled={busy}>Save limit</button>
-                  </form>
-                  <button
-                    disabled={busy}
-                    onClick={() => {
-                      const name = prompt("Category name", c.name);
-                      if (name?.trim())
-                        void commit({
-                          ...data,
-                          categories: data.categories.map((x) =>
-                            x.id === c.id ? { ...x, name: name.trim() } : x,
-                          ),
-                        });
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void commit({
-                        ...data,
-                        categories: data.categories.map((x) =>
-                          x.id === c.id ? { ...x, archived: !x.archived } : x,
-                        ),
-                      })
-                    }
-                  >
-                    {c.archived ? "Unarchive" : "Archive"}
+                    Restore transaction
                   </button>
                 </div>
               ))}
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => {
-                  const name = prompt("New category name");
-                  if (name?.trim())
-                    void commit({
-                      ...data,
-                      categories: [
-                        ...data.categories,
-                        { id: uid(), name: name.trim(), limit: 0 },
-                      ],
-                    });
-                }}
-              >
-                <Plus size={16} />
-                Add category
-              </button>
             </section>
           )}
+          {page === "Budget" && (
+            <BudgetPanel
+              data={data}
+              month={month}
+              busy={busy}
+              onSave={commit}
+            />
+          )}
           {page === "Bills" && (
-            <section className="panel">
-              <PanelTitle
-                title="Bills & due dates"
-                sub="Monthly dates clamp to the last day of short months. Paid status belongs to one occurrence."
-              />
-              <button
-                className="secondary"
-                onClick={() => setModal("bill")}
-                disabled={!data.accounts.length}
-              >
-                Add bill
-              </button>
-              {[...data.bills]
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map((b) => (
-                  <div className="bill-row" key={b.id}>
-                    <div className="date-tile">
-                      <small>{b.date.slice(0, 7)}</small>
-                      <strong>{b.date.slice(-2)}</strong>
-                    </div>
-                    <div>
-                      <strong>{b.name}</strong>
-                      <small>
-                        {b.frequency} · {accountName(b.account)} ·{" "}
-                        {b.paidTransaction
-                          ? "Paid"
-                          : b.date < today()
-                            ? "Overdue"
-                            : b.date === today()
-                              ? "Due today"
-                              : "Unpaid"}
-                      </small>
-                    </div>
-                    <strong>{money(b.amount)}</strong>
-                    {!b.paidTransaction && (
-                      <button
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => void payBill(b)}
-                      >
-                        <Check size={16} />
-                        Pay & record
-                      </button>
-                    )}
-                  </div>
-                ))}
-              {!data.bills.length && (
-                <Empty text="Add your first bill. Autopay does not mark a bill paid." />
-              )}
-              <p className="small">
-                Reminders are inside this app only. They will not notify you
-                when the app is closed.
-              </p>
-            </section>
+            <BillsPanel data={data} busy={busy} onSave={commit} />
           )}
           {page === "Savings" && (
             <section className="panel">
@@ -1233,19 +1121,21 @@ function App() {
           >
             <div className="modal-heading">
               <h2 id="modal-title">
-                {modal === "deleteAccount"
-                  ? "Delete account"
-                  : modal === "import"
-                    ? "Import transactions"
-                    : modal === "transaction"
-                      ? editing
-                        ? "Edit transaction"
-                        : "Add transaction"
-                      : modal === "account"
-                        ? editingAccount
-                          ? "Edit account"
-                          : "Add account"
-                        : "Add bill"}
+                {modal === "loanPayment"
+                  ? "Loan payment"
+                  : modal === "deleteAccount"
+                    ? "Delete account"
+                    : modal === "import"
+                      ? "Import transactions"
+                      : modal === "transaction"
+                        ? editing
+                          ? "Edit transaction"
+                          : "Add transaction"
+                        : modal === "account"
+                          ? editingAccount
+                            ? "Edit account"
+                            : "Add account"
+                          : "Add bill"}
               </h2>
               <button
                 disabled={busy}
@@ -1260,7 +1150,16 @@ function App() {
                 {error}
               </div>
             )}
-            {modal === "deleteAccount" && editingAccount ? (
+            {modal === "loanPayment" && loanDialog ? (
+              <LoanPaymentEditor
+                data={data}
+                loanId={loanDialog.loan}
+                paymentId={loanDialog.payment}
+                busy={busy}
+                onSave={commit}
+                onCancel={() => setModal(null)}
+              />
+            ) : modal === "deleteAccount" && editingAccount ? (
               <DeleteAccountDialog
                 data={data}
                 accountId={editingAccount.id}
@@ -1301,7 +1200,18 @@ function App() {
                 }
                 busy={busy}
                 onSave={async (next) => {
-                  if (await commit(next)) setModal(null);
+                  try {
+                    const update =
+                      modal === "transaction" && editing
+                        ? replaceTransaction(
+                            data,
+                            next.transactions.find((t) => t.id === editing.id)!,
+                          )
+                        : next;
+                    if (await commit(update)) setModal(null);
+                  } catch (e) {
+                    setError(message(e));
+                  }
                 }}
                 onError={setError}
               />
@@ -1341,6 +1251,9 @@ function EntryForm({
   onError: (s: string) => void;
 }) {
   const [type, setType] = useState(editing?.type || "expense");
+  const [accountType, setAccountType] = useState(
+    initialAccount?.type || "checking",
+  );
   const [localError, setLocalError] = useState("");
   const accountSelect = (name: string, label: string, value?: string) => (
     <label>
@@ -1370,6 +1283,13 @@ function EntryForm({
               type: get("accountType") as Account["type"],
               opening: cents(get("opening")),
               date: get("date"),
+              rateBps: get("rate").trim() ? cents(get("rate")) : undefined,
+              originalPrincipal: get("originalPrincipal").trim()
+                ? cents(get("originalPrincipal"))
+                : undefined,
+              expectedPayment: get("expectedPayment").trim()
+                ? cents(get("expectedPayment"))
+                : undefined,
             };
             if (
               initialAccount &&
@@ -1412,6 +1332,9 @@ function EntryForm({
                 type === "expense" || type === "refund" ? get("category") : "",
               payee: get("payee").trim(),
               notes: get("notes").trim(),
+              interest:
+                (get("interest") as Transaction["interest"]) || undefined,
+              importKeys: editing?.importKeys,
             };
             next = {
               ...data,
@@ -1473,7 +1396,13 @@ function EntryForm({
         <>
           <label>
             Account type
-            <select name="accountType" defaultValue={initialAccount?.type}>
+            <select
+              name="accountType"
+              value={accountType}
+              onChange={(e) =>
+                setAccountType(e.target.value as Account["type"])
+              }
+            >
               {["checking", "savings", "cash", "credit", "debt"].map((t) => (
                 <option key={t}>{t}</option>
               ))}
@@ -1518,6 +1447,65 @@ function EntryForm({
           required
         />
       </label>
+      {kind === "account" && (
+        <>
+          <label>
+            Annual rate (%) ·{" "}
+            {accountType === "savings" || accountType === "checking"
+              ? "APY"
+              : "APR"}
+            <input
+              name="rate"
+              inputMode="decimal"
+              defaultValue={
+                initialAccount?.rateBps === undefined
+                  ? ""
+                  : (initialAccount.rateBps / 100).toFixed(2)
+              }
+              placeholder="Optional"
+            />
+          </label>
+          <label>
+            Original loan amount (USD, debt accounts only)
+            <input
+              name="originalPrincipal"
+              inputMode="decimal"
+              defaultValue={
+                initialAccount?.originalPrincipal === undefined
+                  ? ""
+                  : (initialAccount.originalPrincipal / 100).toFixed(2)
+              }
+              placeholder="Optional"
+            />
+          </label>
+          <label>
+            Expected monthly loan payment (USD)
+            <input
+              name="expectedPayment"
+              inputMode="decimal"
+              defaultValue={
+                initialAccount?.expectedPayment === undefined
+                  ? ""
+                  : (initialAccount.expectedPayment / 100).toFixed(2)
+              }
+              placeholder="Optional"
+            />
+          </label>
+        </>
+      )}
+      {kind === "transaction" && (type === "expense" || type === "income") && (
+        <label>
+          Interest classification
+          <select name="interest" defaultValue={editing?.interest || ""}>
+            <option value="">Ordinary transaction</option>
+            {type === "expense" ? (
+              <option value="charged">Actual interest charged</option>
+            ) : (
+              <option value="earned">Actual interest earned</option>
+            )}
+          </select>
+        </label>
+      )}
       {kind !== "account" &&
         accountSelect(
           "account",

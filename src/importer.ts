@@ -1,3 +1,13 @@
+import {
+  findImportMatches,
+  rowImportKey,
+  type ImportMatch,
+} from "./importMatching";
+import {
+  linkBillPayment,
+  saveLoanPayment,
+  recordBillPayment,
+} from "./planning";
 import Papa from "papaparse";
 import {
   cents,
@@ -35,6 +45,15 @@ export type ImportRow = {
   include: boolean;
   warning: string;
   error: string;
+  importKey?: string;
+  matches?: ImportMatch[];
+  action?: "new" | "existing" | "loan" | "bill";
+  matchId?: string;
+  billId?: string;
+  loanId?: string;
+  principal?: string;
+  interest?: string;
+  exactDuplicate?: boolean;
 };
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 export function parseCSV(text: string): CSVFile {
@@ -156,6 +175,7 @@ export function previewRows(
       "Map date, description, and an amount column or both debit/credit columns.",
     );
   const seen = new Set<string>();
+  const occurrences = new Map<string, number>();
   return file.rows.map((cells, index) => {
     const row: ImportRow = {
       id: uid(),
@@ -273,6 +293,26 @@ export function previewRows(
           "Possible duplicate: same date, amount and direction already saved or repeated in this file. Skipped by default; include only if distinct.";
         row.include = false;
       }
+      const ordinal = occurrences.get(fingerprint) || 0;
+      occurrences.set(fingerprint, ordinal + 1);
+      row.importKey = rowImportKey(
+        account,
+        row.date,
+        row.amount,
+        row.payee,
+        row.incoming,
+        ordinal,
+      );
+      row.matches = findImportMatches(data, account, row);
+      row.exactDuplicate = row.matches.some((m) => m.exact);
+      if (row.matches.length) {
+        row.include = false;
+        row.warning +=
+          (row.warning ? " " : "") +
+          (row.exactDuplicate
+            ? "Already imported: this row cannot create another transaction."
+            : "Potential existing transaction, bill, or loan payment. Review matches before including.");
+      }
       seen.add(fingerprint);
     } catch (e) {
       row.error = e instanceof Error ? e.message : "Invalid row";
@@ -314,7 +354,15 @@ export function importTransactions(
         category: r.type === "expense" || r.type === "refund" ? r.category : "",
         payee: r.payee,
         notes: "Imported from CSV",
+        importKeys: r.importKey ? [r.importKey] : undefined,
       };
+      if (
+        r.importKey &&
+        data.transactions.some((t) => t.importKeys?.includes(r.importKey!))
+      )
+        throw Error(
+          `Row ${r.line}: already imported. Match the existing record or skip this row.`,
+        );
       // A transfer imported from its other account must not be booked twice.
       if (
         t.type === "transfer" &&
@@ -336,4 +384,162 @@ export function importTransactions(
     throw Error("Select at least one valid transaction to import.");
   validate({ ...data, transactions: [...data.transactions, ...txs] });
   return txs;
+}
+
+export function applyReviewedImport(
+  rows: ImportRow[],
+  account: string,
+  data: Data,
+): Data {
+  const selected = rows.filter((r) => r.include);
+  if (!selected.length)
+    throw Error("Select at least one valid row to process.");
+  let next = data;
+  for (const r of selected) {
+    if (r.error) throw Error(`Row ${r.line}: ${r.error}`);
+    if (
+      r.action !== "existing" &&
+      r.action !== "loan" &&
+      r.importKey &&
+      next.transactions.some((t) => t.importKeys?.includes(r.importKey!))
+    )
+      throw Error(
+        `Row ${r.line}: already imported. Skip or link the existing payment.`,
+      );
+    if (r.action === "existing" || r.action === "loan") {
+      const group =
+        r.action === "loan"
+          ? next.loanPayments?.find((p) => p.id === r.matchId)
+          : undefined;
+      const id = group?.transactionIds[0] || r.matchId;
+      const t = next.transactions.find((t) => t.id === id);
+      if (!t) throw Error(`Row ${r.line}: select an existing payment.`);
+      if (
+        r.importKey &&
+        next.transactions.some(
+          (x) =>
+            x.importKeys?.includes(r.importKey!) &&
+            x.id !== id &&
+            !group?.transactionIds.includes(x.id),
+        )
+      )
+        throw Error(
+          "This CSV row is already linked to a different transaction.",
+        );
+      if (
+        !r.matches?.some(
+          (m) =>
+            m.id === r.matchId &&
+            (m.kind === "transaction" || m.kind === "loan"),
+        )
+      )
+        throw Error("Select a suggested transaction match.");
+      next = {
+        ...next,
+        transactions: next.transactions.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                importKeys: [
+                  ...new Set([
+                    ...(x.importKeys || []),
+                    ...(r.importKey ? [r.importKey] : []),
+                  ]),
+                ],
+              }
+            : x,
+        ),
+      };
+      if (r.billId)
+        next = linkBillPayment(next, r.billId, group?.transactionIds || [t.id]);
+    } else if (r.action === "bill") {
+      const b = next.bills.find((b) => b.id === r.billId);
+      if (!b || r.incoming || b.account !== account)
+        throw Error(`Row ${r.line}: select the correct outgoing bill payment.`);
+      if (
+        b.loanAccount &&
+        next.accounts.find((a) => a.id === b.loanAccount)?.type === "debt"
+      ) {
+        const principal = cents(r.principal || "0"),
+          interest = cents(r.interest || "0");
+        if (principal + interest !== r.amount)
+          throw Error(
+            `Row ${r.line}: principal plus interest must equal the CSV payment amount.`,
+          );
+        const before = new Set(next.transactions.map((t) => t.id));
+        next = saveLoanPayment(next, {
+          loan: b.loanAccount,
+          account,
+          date: r.date,
+          principal,
+          interest,
+          category: b.category,
+          billId: b.id,
+        });
+        const first = next.transactions.find((t) => !before.has(t.id));
+        if (first && r.importKey)
+          next = {
+            ...next,
+            transactions: next.transactions.map((t) =>
+              t.id === first.id ? { ...t, importKeys: [r.importKey!] } : t,
+            ),
+          };
+      } else if (b.loanAccount) {
+        const before = new Set(next.transactions.map((t) => t.id));
+        next = recordBillPayment(next, b.id, r.amount, r.date);
+        const t = next.transactions.find((t) => !before.has(t.id));
+        if (t && r.importKey)
+          next = {
+            ...next,
+            transactions: next.transactions.map((x) =>
+              x.id === t.id ? { ...x, importKeys: [r.importKey!] } : x,
+            ),
+          };
+      } else {
+        const t = importTransactions(
+          [{ ...r, type: "expense", category: b.category, action: "new" }],
+          account,
+          next,
+        )[0];
+        next = linkBillPayment(
+          { ...next, transactions: [...next.transactions, t] },
+          b.id,
+          [t.id],
+        );
+      }
+    } else if (r.loanId) {
+      if (r.incoming)
+        throw Error(
+          "Record loan splits from the cash-account side of the CSV.",
+        );
+      const principal = cents(r.principal || "0"),
+        interest = cents(r.interest || "0");
+      if (principal + interest !== r.amount)
+        throw Error(
+          `Row ${r.line}: principal plus interest must equal the CSV payment amount.`,
+        );
+      const before = new Set(next.transactions.map((t) => t.id));
+      next = saveLoanPayment(next, {
+        loan: r.loanId,
+        account,
+        date: r.date,
+        principal,
+        interest,
+        category: r.category,
+      });
+      const first = next.transactions.find((t) => !before.has(t.id));
+      if (first && r.importKey)
+        next = {
+          ...next,
+          transactions: next.transactions.map((t) =>
+            t.id === first.id ? { ...t, importKeys: [r.importKey!] } : t,
+          ),
+        };
+    } else {
+      const tx = importTransactions([r], account, next);
+      next = { ...next, transactions: [...next.transactions, ...tx] };
+    }
+  }
+  validate(next);
+  return next;
 }

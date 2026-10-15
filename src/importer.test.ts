@@ -156,7 +156,10 @@ test("incoming transfer reverses legs and cannot be booked twice from another fi
   assert.equal(ts[0].account, "checking");
   assert.equal(ts[0].to, "card");
   d.transactions = ts;
-  assert.throws(() => importTransactions(rows, "card", d), /already saved/);
+  assert.throws(
+    () => importTransactions(rows, "card", d),
+    /already (saved|imported)/,
+  );
 });
 test("pending, invalid and before-opening rows cannot be selected for saving", () => {
   const d = setup(),

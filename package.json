@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "test": "tsx --test src/*.test.ts",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "dev:review": "vite --host 0.0.0.0 --mode review",
+    "build:review": "tsc -b && vite build --mode review --base=./"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
