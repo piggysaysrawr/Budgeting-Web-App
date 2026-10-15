@@ -32,6 +32,12 @@ Choose **Explore fictional demo** to try the app without credentials. Demo data 
 
 Supabase connectivity was verified after the schema was installed: the Auth settings endpoint responds successfully, and anonymous reads of the household table are denied as expected. Authenticated save/load and cross-device persistence still need a signed-in test. No password or service-role key is needed in chat.
 
+## Delete an account
+
+On **Accounts**, choose **Delete account**. The confirmation lists how many linked transactions and bill occurrences will be permanently removed and identifies other accounts affected by removed transfers. Type the exact account name and acknowledge the warning before deleting. There is no undo; use Settings → Download full JSON before deleting if you need an archive (automatic restore is not implemented).
+
+The deletion is one atomic household save. Removing a transfer removes both sides, so the remaining account's balance changes; income/spending totals and net worth also recalculate. Bills on other accounts whose payment transactions are removed become unpaid. Your bank account and Supabase login are unaffected. Cancel preserves all data, and a failed save keeps the account and confirmation open.
+
 ## Import transactions from bank CSV files
 
 Choose **Import CSV** beside Add transaction. No new database migration or bank connection is required. Files are parsed locally; only transactions selected in the preview are saved to your existing private Supabase household. Original files are not uploaded or retained by the app.

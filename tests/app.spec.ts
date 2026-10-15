@@ -257,3 +257,94 @@ test("account opening balance can be corrected before historical import", async 
       .filter({ hasText: "Everyday checking" }),
   ).toContainText("Opening $100.00 on 2020-01-01");
 });
+
+test("account deletion requires typed confirmation, cancels safely and persists transfer cleanup", async ({
+  page,
+}, info) => {
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  const open = () =>
+    page
+      .getByRole("button", { name: "Delete Rainy day savings account" })
+      .click();
+  await open();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("1 linked transactions");
+  await expect(dialog).toContainText("Everyday checking");
+  await expect(
+    dialog.getByRole("button", { name: "Permanently delete account" }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Delete Rainy day savings account" }),
+  ).toBeVisible();
+  await open();
+  await dialog
+    .getByLabel("Type the account name to confirm")
+    .fill("wrong name");
+  await dialog.getByLabel("I understand that linked data").check();
+  await expect(
+    dialog.getByRole("button", { name: "Permanently delete account" }),
+  ).toBeDisabled();
+  await page.screenshot({
+    path: `test-results/delete-account-${info.project.name}.png`,
+    fullPage: true,
+  });
+  await dialog
+    .getByLabel("Type the account name to confirm")
+    .fill("Rainy day savings");
+  await dialog
+    .getByRole("button", { name: "Permanently delete account" })
+    .click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole("heading", { name: "Rainy day savings", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Dashboard", exact: true })
+    .click();
+  await expect(
+    page.locator(".account-row").filter({ hasText: "Everyday checking" }),
+  ).toContainText("$5,616.50");
+  await expect(
+    page.locator(".stat").filter({ hasText: "MONTHLY SPENDING" }),
+  ).toContainText("$120.50");
+  await page.reload();
+  await page.getByRole("button", { name: "Explore fictional demo" }).click();
+  await expect(
+    page.locator(".account-row").filter({ hasText: "Rainy day savings" }),
+  ).toHaveCount(0);
+});
+
+test("failed deletion preserves the account and reports the storage error", async ({
+  page,
+}) => {
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Accounts", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete Rainy day savings account" })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Type the account name to confirm")
+    .fill("Rainy day savings");
+  await dialog.getByLabel("I understand that linked data").check();
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new Error("Storage unavailable");
+    };
+  });
+  await dialog
+    .getByRole("button", { name: "Permanently delete account" })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("Storage unavailable");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Rainy day savings", exact: true }),
+  ).toBeVisible();
+});

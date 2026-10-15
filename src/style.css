@@ -1259,3 +1259,27 @@ td small {
   display: flex;
   margin-top: 18px;
 }
+.danger-text {
+  color: var(--warning);
+  border-color: var(--line);
+  background: var(--panel);
+}
+.danger-button {
+  background: #9b3e32;
+  border-color: #9b3e32;
+  color: #fff;
+}
+.delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.modal .alert p {
+  color: inherit;
+  margin-top: 10px;
+}
+.modal .alert ul {
+  padding-left: 20px;
+  line-height: 1.8;
+}

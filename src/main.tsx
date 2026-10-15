@@ -1,3 +1,4 @@
+import { DeleteAccountDialog } from "./DeleteAccountDialog";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -80,7 +81,7 @@ function App() {
     [busy, setBusy] = useState(false),
     [dark, setDark] = useState(localStorage.getItem("hearth-theme") === "dark"),
     [modal, setModal] = useState<
-      "transaction" | "account" | "bill" | "import" | null
+      "transaction" | "account" | "bill" | "import" | "deleteAccount" | null
     >(null),
     [editing, setEditing] = useState<Transaction | undefined>(),
     [editingAccount, setEditingAccount] = useState<Account | undefined>(),
@@ -791,6 +792,20 @@ function App() {
                     >
                       Edit account
                     </button>
+                    <button
+                      className="danger-text account-edit-button"
+                      disabled={busy}
+                      aria-label={`Delete ${a.name} account`}
+                      onClick={() => {
+                        setEditingAccount(a);
+                        setError("");
+                        setNotice("");
+                        setModal("deleteAccount");
+                      }}
+                    >
+                      <Trash2 size={16} />
+                      Delete account
+                    </button>
                   </section>
                 ))}
               </div>
@@ -1218,17 +1233,19 @@ function App() {
           >
             <div className="modal-heading">
               <h2 id="modal-title">
-                {modal === "import"
-                  ? "Import transactions"
-                  : modal === "transaction"
-                    ? editing
-                      ? "Edit transaction"
-                      : "Add transaction"
-                    : modal === "account"
-                      ? editingAccount
-                        ? "Edit account"
-                        : "Add account"
-                      : "Add bill"}
+                {modal === "deleteAccount"
+                  ? "Delete account"
+                  : modal === "import"
+                    ? "Import transactions"
+                    : modal === "transaction"
+                      ? editing
+                        ? "Edit transaction"
+                        : "Add transaction"
+                      : modal === "account"
+                        ? editingAccount
+                          ? "Edit account"
+                          : "Add account"
+                        : "Add bill"}
               </h2>
               <button
                 disabled={busy}
@@ -1243,7 +1260,24 @@ function App() {
                 {error}
               </div>
             )}
-            {modal === "import" ? (
+            {modal === "deleteAccount" && editingAccount ? (
+              <DeleteAccountDialog
+                data={data}
+                accountId={editingAccount.id}
+                busy={busy}
+                onCancel={() => setModal(null)}
+                onSave={async (next) => {
+                  const saved = await commit(next);
+                  if (saved) {
+                    if (filterAccount === editingAccount.id)
+                      setFilterAccount("");
+                    setModal(null);
+                    setEditingAccount(undefined);
+                  }
+                  return saved;
+                }}
+              />
+            ) : modal === "import" ? (
               <React.Suspense
                 fallback={<p role="status">Loading CSV importer…</p>}
               >
@@ -1273,13 +1307,15 @@ function App() {
               />
             )}
             <p className="small">
-              {modal === "import"
-                ? "Files are never committed to GitHub. Keep original exports and backups in a private location."
-                : modal === "account"
-                  ? "Use a negative opening balance for money owed. Opening balances are not income."
-                  : modal === "transaction"
-                    ? "Credit card payments and savings contributions are transfers. For debt payments, record principal as a transfer and interest or fees as separate expenses."
-                    : "Paying records exactly one expense for this occurrence."}
+              {modal === "deleteAccount"
+                ? "Deletion is saved only after your confirmation."
+                : modal === "import"
+                  ? "Files are never committed to GitHub. Keep original exports and backups in a private location."
+                  : modal === "account"
+                    ? "Use a negative opening balance for money owed. Opening balances are not income."
+                    : modal === "transaction"
+                      ? "Credit card payments and savings contributions are transfers. For debt payments, record principal as a transfer and interest or fees as separate expenses."
+                      : "Paying records exactly one expense for this occurrence."}
             </p>
           </section>
         </div>

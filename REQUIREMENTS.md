@@ -111,3 +111,9 @@ Project scope
 - Use integer cents, reject invalid/pending/before-opening transactions, and preserve atomic authenticated storage.
 - Keep original financial files and personal samples out of the public repository. Use fictional regression fixtures.
 - CSV presets must expose sign and column mapping because issuer export formats can change. PDF/OFX/QFX support is outside this change.
+
+## Added requirement: account deletion
+
+- Allow deleting accounts after explicit typed confirmation. Explain removal of linked transactions/bills and effects on other balances before saving.
+- Remove all account references atomically, including transfers in either direction. Reopen retained bills when their linked payment is removed.
+- Recalculate balances and totals; cancel and storage failures must preserve all data. Never delete an actual bank account or the household login.
