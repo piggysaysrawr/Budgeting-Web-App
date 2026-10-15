@@ -9,3 +9,5 @@
 - Verify changed financial calculations with automated tests. Verify core forms and navigation at mobile and desktop sizes. Report skipped checks and external prerequisites honestly.
 - Confirm deletion, validate inputs, await persistent writes, and surface save errors. Preserve accessible labels and keyboard controls.
 - Schema changes belong in supabase/schema.sql, with RLS and validation. Never weaken authorization to get a test passing.
+
+- Import tests use fictional CSV strings. Never commit real bank exports. Verify amount signs, multi-account selection, duplicate warnings, transfer direction, and storage failures for importer changes.

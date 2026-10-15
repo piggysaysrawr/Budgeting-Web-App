@@ -5,3 +5,7 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+
+# Private financial exports are never source files.
+*.csv
+private-imports/

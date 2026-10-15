@@ -32,6 +32,19 @@ Choose **Explore fictional demo** to try the app without credentials. Demo data 
 
 Supabase connectivity was verified after the schema was installed: the Auth settings endpoint responds successfully, and anonymous reads of the household table are denied as expected. Authenticated save/load and cross-device persistence still need a signed-in test. No password or service-role key is needed in chat.
 
+## Import transactions from bank CSV files
+
+Choose **Import CSV** beside Add transaction. No new database migration or bank connection is required. Files are parsed locally; only transactions selected in the preview are saved to your existing private Supabase household. Original files are not uploaded or retained by the app.
+
+1. On Accounts, create the relevant accounts (for example SoFi Checking, SoFi Savings, Discover, and Amex Blue Cash Everyday). Enter the opening balance **immediately before the first imported date**. Credit/debt balances owed are negative. Do not use today's balance and then import older transactions on top of it. Imports before the opening date are blocked. Use **Edit account** to correct its opening balance/date (confirmation required), or choose a later export range. Existing transactions must remain on or after the revised opening date.
+2. Download CSV transactions from your bank. A SoFi Relay all-transactions export is supported: choose **SoFi / SoFi Relay** and then select one **Source account in file**. Map that source to the correct **app account**. Repeat for the other accounts. Account numbers/names from the source file are not stored in transaction notes.
+3. Confirm date/description/amount columns and the sign convention. SoFi Relay uses positive inflows and negative outflows. Discover/Amex presets assume positive charges and negative credits; verify against your own export before saving. Direct Discover/Amex exports have synthetic format coverage but a real export from those issuers has not yet been checked. Column mapping supports signed amounts or separate debit/credit columns and US or day-first dates with four-digit years. Posted date is preferred where available.
+4. Preview and choose categories/types. Known bank categories suggest matching app categories; others default to Miscellaneous. Bank credits default to income; card credits default to refunds. Change these when needed. Pending, invalid, zero-value and before-opening-date rows cannot be imported. PDF/QFX/OFX statements are not supported in this release.
+5. Possible transfers/card payments and duplicates are **skipped by default**. For a transfer you choose to include, select the other app account. It updates both balances without income/spending. Import it only once across both account files; matched same-day transfers cannot be added twice. Posting dates may differ across accounts, so review unmatched payments manually. Automatic matching is conservative and cannot guarantee that every duplicate or transfer is found.
+6. Check the projected balance change, confirm review, and import. There is no success message until storage succeeds; errors keep the preview open. Afterward check balances and the imported dates in Transactions. Individual imported transactions can be edited/deleted normally.
+
+Limits: 2 MB per CSV and 2,000 rows per import; household storage retains its existing 2 MB document limit. No real financial CSV or downloaded backup should ever be committed to this public repository. Tests use fictional CSV strings. The user-supplied SoFi Relay file was checked locally for compatibility (631 rows, five source accounts, zero parsing errors) without saving its financial records or including them in source control.
+
 ## Architecture and financial rules
 
 React + TypeScript + Vite keeps the UI small and portable. Supabase supplies email/password authentication and Postgres; GitHub Pages is the selected static host for testing. Fonts are self-hosted npm assets; no analytics or bank connections.

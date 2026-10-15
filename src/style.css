@@ -1157,3 +1157,105 @@ td small {
 .header-actions {
   gap: 14px;
 }
+.import-modal {
+  max-width: 950px;
+}
+.import-flow {
+  display: grid;
+  gap: 18px;
+}
+.import-mapping {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 15px;
+  background: var(--soft);
+  border-radius: 7px;
+  font-size: 13px;
+}
+.import-rows {
+  max-height: 48dvh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.import-row {
+  padding: 17px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+.import-row.excluded {
+  background: var(--bg);
+}
+.import-include,
+.import-confirm {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.import-include input,
+.import-confirm input {
+  width: 20px;
+  min-height: 22px;
+  flex-shrink: 0;
+}
+.import-description {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.import-description span {
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+.import-row-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.import-row-fields label {
+  font-size: 11px;
+}
+.import-row p {
+  font-size: 11px;
+}
+.heading-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .import-mapping,
+  .import-row-fields {
+    grid-template-columns: 1fr;
+  }
+  .import-description {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .import-modal {
+    max-height: 95dvh;
+  }
+  .import-rows {
+    max-height: 44dvh;
+  }
+  .heading-actions .month-label {
+    order: -1;
+  }
+  .heading-actions .primary {
+    flex: 1;
+  }
+}
+.account-edit-button {
+  display: flex;
+  margin-top: 18px;
+}

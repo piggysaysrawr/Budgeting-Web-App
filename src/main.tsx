@@ -46,6 +46,9 @@ import "@fontsource/manrope/600.css";
 import "@fontsource/manrope/700.css";
 import "@fontsource/manrope/800.css";
 import "./style.css";
+const ImportDialog = React.lazy(() =>
+  import("./ImportDialog").then((module) => ({ default: module.ImportDialog })),
+);
 const demoKey = "hearth-fictional-demo-v1";
 const pages = [
   "Dashboard",
@@ -76,10 +79,11 @@ function App() {
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [dark, setDark] = useState(localStorage.getItem("hearth-theme") === "dark"),
-    [modal, setModal] = useState<"transaction" | "account" | "bill" | null>(
-      null,
-    ),
+    [modal, setModal] = useState<
+      "transaction" | "account" | "bill" | "import" | null
+    >(null),
     [editing, setEditing] = useState<Transaction | undefined>(),
+    [editingAccount, setEditingAccount] = useState<Account | undefined>(),
     [search, setSearch] = useState(""),
     [filterAccount, setFilterAccount] = useState(""),
     [filterType, setFilterType] = useState(""),
@@ -520,6 +524,16 @@ function App() {
               </p>
             </div>
             <div className="heading-actions">
+              <button
+                className="secondary"
+                disabled={!data.accounts.length || busy}
+                onClick={() => {
+                  setError("");
+                  setModal("import");
+                }}
+              >
+                Import CSV
+              </button>
               <label className="month-label">
                 <span className="sr-only">Selected month</span>
                 <input
@@ -743,7 +757,14 @@ function App() {
           )}
           {page === "Accounts" && (
             <>
-              <button className="secondary" onClick={() => setModal("account")}>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setEditingAccount(undefined);
+                  setError("");
+                  setModal("account");
+                }}
+              >
                 <Plus size={17} />
                 Add account
               </button>
@@ -758,6 +779,18 @@ function App() {
                       Opening {money(a.opening)} on {a.date}
                     </p>
                     <small>Negative balances represent money owed.</small>
+                    <button
+                      className="secondary account-edit-button"
+                      disabled={busy}
+                      aria-label={`Edit ${a.name} account`}
+                      onClick={() => {
+                        setEditingAccount(a);
+                        setError("");
+                        setModal("account");
+                      }}
+                    >
+                      Edit account
+                    </button>
                   </section>
                 ))}
               </div>
@@ -1181,17 +1214,21 @@ function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-title"
-            className="modal"
+            className={modal === "import" ? "modal import-modal" : "modal"}
           >
             <div className="modal-heading">
               <h2 id="modal-title">
-                {modal === "transaction"
-                  ? editing
-                    ? "Edit transaction"
-                    : "Add transaction"
-                  : modal === "account"
-                    ? "Add account"
-                    : "Add bill"}
+                {modal === "import"
+                  ? "Import transactions"
+                  : modal === "transaction"
+                    ? editing
+                      ? "Edit transaction"
+                      : "Add transaction"
+                    : modal === "account"
+                      ? editingAccount
+                        ? "Edit account"
+                        : "Add account"
+                      : "Add bill"}
               </h2>
               <button
                 disabled={busy}
@@ -1206,22 +1243,43 @@ function App() {
                 {error}
               </div>
             )}
-            <EntryForm
-              kind={modal}
-              data={data}
-              editing={editing}
-              busy={busy}
-              onSave={async (next) => {
-                if (await commit(next)) setModal(null);
-              }}
-              onError={setError}
-            />
+            {modal === "import" ? (
+              <React.Suspense
+                fallback={<p role="status">Loading CSV importer…</p>}
+              >
+                <ImportDialog
+                  data={data}
+                  busy={busy}
+                  onSave={async (next) => {
+                    const saved = await commit(next);
+                    if (saved) setModal(null);
+                    return saved;
+                  }}
+                />
+              </React.Suspense>
+            ) : (
+              <EntryForm
+                kind={modal}
+                data={data}
+                editing={editing}
+                initialAccount={
+                  modal === "account" ? editingAccount : undefined
+                }
+                busy={busy}
+                onSave={async (next) => {
+                  if (await commit(next)) setModal(null);
+                }}
+                onError={setError}
+              />
+            )}
             <p className="small">
-              {modal === "account"
-                ? "Use a negative opening balance for money owed. Opening balances are not income."
-                : modal === "transaction"
-                  ? "Credit card payments and savings contributions are transfers. For debt payments, record principal as a transfer and interest or fees as separate expenses."
-                  : "Paying records exactly one expense for this occurrence."}
+              {modal === "import"
+                ? "Files are never committed to GitHub. Keep original exports and backups in a private location."
+                : modal === "account"
+                  ? "Use a negative opening balance for money owed. Opening balances are not income."
+                  : modal === "transaction"
+                    ? "Credit card payments and savings contributions are transfers. For debt payments, record principal as a transfer and interest or fees as separate expenses."
+                    : "Paying records exactly one expense for this occurrence."}
             </p>
           </section>
         </div>
@@ -1233,6 +1291,7 @@ function EntryForm({
   kind,
   data,
   editing,
+  initialAccount,
   busy,
   onSave,
   onError,
@@ -1240,6 +1299,7 @@ function EntryForm({
   kind: string;
   data: Data;
   editing?: Transaction;
+  initialAccount?: Account;
   busy: boolean;
   onSave: (d: Data) => Promise<void>;
   onError: (s: string) => void;
@@ -1269,13 +1329,27 @@ function EntryForm({
           let next: Data;
           if (kind === "account") {
             const a: Account = {
-              id: uid(),
+              id: initialAccount?.id || uid(),
               name: get("name").trim(),
               type: get("accountType") as Account["type"],
               opening: cents(get("opening")),
               date: get("date"),
             };
-            next = { ...data, accounts: [...data.accounts, a] };
+            if (
+              initialAccount &&
+              (a.opening !== initialAccount.opening ||
+                a.date !== initialAccount.date) &&
+              !confirm(
+                "Change the opening balance/date? All balances will be recalculated. Use the balance immediately before your imported transactions; avoid counting them twice.",
+              )
+            )
+              return;
+            next = {
+              ...data,
+              accounts: initialAccount
+                ? data.accounts.map((x) => (x.id === a.id ? a : x))
+                : [...data.accounts, a],
+            };
           } else if (kind === "bill") {
             const amount = cents(get("amount"));
             if (amount <= 0) throw Error("Amount must be positive.");
@@ -1350,14 +1424,20 @@ function EntryForm({
       ) : (
         <label>
           Name
-          <input name="name" autoFocus required maxLength={120} />
+          <input
+            name="name"
+            defaultValue={initialAccount?.name}
+            autoFocus
+            required
+            maxLength={120}
+          />
         </label>
       )}
       {kind === "account" ? (
         <>
           <label>
             Account type
-            <select name="accountType">
+            <select name="accountType" defaultValue={initialAccount?.type}>
               {["checking", "savings", "cash", "credit", "debt"].map((t) => (
                 <option key={t}>{t}</option>
               ))}
@@ -1368,7 +1448,11 @@ function EntryForm({
             <input
               name="opening"
               inputMode="decimal"
-              defaultValue="0.00"
+              defaultValue={
+                initialAccount
+                  ? (initialAccount.opening / 100).toFixed(2)
+                  : "0.00"
+              }
               required
             />
           </label>
@@ -1394,7 +1478,7 @@ function EntryForm({
         <input
           name="date"
           type="date"
-          defaultValue={editing?.date || today()}
+          defaultValue={initialAccount?.date || editing?.date || today()}
           required
         />
       </label>
