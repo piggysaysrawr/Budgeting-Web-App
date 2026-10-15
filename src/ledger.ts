@@ -4,6 +4,9 @@ export type Account = {
   type: "checking" | "savings" | "cash" | "credit" | "debt";
   opening: number;
   date: string;
+  rateBps?: number;
+  originalPrincipal?: number;
+  expectedPayment?: number;
 };
 export type Transaction = {
   id: string;
@@ -15,12 +18,16 @@ export type Transaction = {
   category: string;
   payee: string;
   notes: string;
+  interest?: "charged" | "earned";
+  loanPart?: "principal" | "interest";
+  importKeys?: string[];
 };
 export type Category = {
   id: string;
   name: string;
   limit: number;
   archived?: boolean;
+  parentId?: string;
 };
 export type Bill = {
   id: string;
@@ -29,17 +36,38 @@ export type Bill = {
   date: string;
   account: string;
   category: string;
-  frequency: "once" | "monthly";
+  frequency:
+    "once" | "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
   anchor: number;
   paidTransaction?: string;
   seriesId?: string;
+  paymentIds?: string[];
+  settledPaymentIds?: string[];
+  loanAccount?: string;
 };
+export type LoanPayment = {
+  interestChargeId?: string;
+  id: string;
+  loan: string;
+  transactionIds: string[];
+};
+export type DeletedTransactions = {
+  id: string;
+  deletedAt: string;
+  transactions: Transaction[];
+  billLinks: Record<string, string[]>;
+  settlements: Record<string, string[]>;
+  loanPayments: LoanPayment[];
+};
+
 export type Data = {
   accounts: Account[];
   transactions: Transaction[];
   categories: Category[];
   bills: Bill[];
   budgets: Record<string, Record<string, number>>;
+  loanPayments?: LoanPayment[];
+  deletedTransactions?: DeletedTransactions[];
 };
 export const today = () => new Intl.DateTimeFormat("en-CA").format(new Date());
 export const uid = () => crypto.randomUUID();
@@ -184,22 +212,40 @@ export function validate(d: Data) {
       !validDate(b.date) ||
       !ids.has(b.account) ||
       !categories.has(b.category) ||
-      !["once", "monthly"].includes(b.frequency) ||
+      ![
+        "once",
+        "weekly",
+        "biweekly",
+        "monthly",
+        "quarterly",
+        "yearly",
+      ].includes(b.frequency) ||
       !Number.isInteger(b.anchor) ||
       b.anchor < 1 ||
       b.anchor > 31
     )
       throw Error("Invalid bill.");
-    if (b.paidTransaction) {
-      if (
-        paid.has(b.paidTransaction) ||
-        !d.transactions.some(
-          (t) => t.id === b.paidTransaction && t.type === "expense",
-        )
-      )
+    const links = [
+      ...new Set([
+        ...(b.paymentIds || []),
+        ...(b.paidTransaction ? [b.paidTransaction] : []),
+      ]),
+    ];
+    for (const id of links) {
+      const t = d.transactions.find((t) => t.id === id);
+      if (paid.has(id) || !t || !["expense", "transfer"].includes(t.type))
         throw Error("Invalid or duplicated bill payment link.");
-      paid.add(b.paidTransaction);
+      paid.add(id);
     }
+    if (b.settledPaymentIds?.some((id) => !links.includes(id)))
+      throw Error("Invalid bill settlement.");
+    if (
+      b.loanAccount &&
+      !d.accounts.some(
+        (a) => a.id === b.loanAccount && ["debt", "credit"].includes(a.type),
+      )
+    )
+      throw Error("Invalid bill loan account.");
   }
   for (const [month, limits] of Object.entries(d.budgets)) {
     if (
@@ -212,6 +258,112 @@ export function validate(d: Data) {
     for (const [id, n] of Object.entries(limits))
       if (!categories.has(id) || !amount(n) || n < 0)
         throw Error("Invalid budget limit.");
+  }
+  for (const a of d.accounts) {
+    if (
+      a.rateBps !== undefined &&
+      (!Number.isInteger(a.rateBps) || a.rateBps < 0 || a.rateBps > 100000)
+    )
+      throw Error(
+        "Annual rate must be between 0 and 1000%, with two decimal places.",
+      );
+    for (const n of [a.originalPrincipal, a.expectedPayment])
+      if (n !== undefined && (!amount(n) || n < 0))
+        throw Error("Invalid loan amount.");
+  }
+  for (const c of d.categories)
+    if (c.parentId) {
+      const parent = d.categories.find((p) => p.id === c.parentId);
+      if (!parent || parent.id === c.id || parent.parentId)
+        throw Error("Only one level of subcategories is supported.");
+    }
+  for (const t of d.transactions) {
+    if (
+      t.interest &&
+      !(
+        (t.interest === "charged" && t.type === "expense") ||
+        (t.interest === "earned" && t.type === "income")
+      )
+    )
+      throw Error(
+        "Interest charges must be expenses and interest earned must be income.",
+      );
+    if (
+      t.importKeys &&
+      (!Array.isArray(t.importKeys) ||
+        t.importKeys.some((k) => typeof k !== "string" || k.length > 500))
+    )
+      throw Error("Invalid import reference.");
+  }
+  const loanTx = new Set<string>();
+  for (const p of d.loanPayments || []) {
+    const loan = d.accounts.find((a) => a.id === p.loan);
+    if (
+      !loan ||
+      loan.type !== "debt" ||
+      !p.transactionIds.length ||
+      new Set(p.transactionIds).size !== p.transactionIds.length
+    )
+      throw Error("Invalid loan payment.");
+    if (p.interestChargeId) {
+      const charge = d.transactions.find((t) => t.id === p.interestChargeId);
+      const paidInterest = p.transactionIds.reduce(
+        (n, id) =>
+          n +
+          (d.transactions.find((t) => t.id === id && t.loanPart === "interest")
+            ?.amount || 0),
+        0,
+      );
+      if (
+        !charge ||
+        charge.account !== p.loan ||
+        charge.type !== "expense" ||
+        charge.interest !== "charged" ||
+        charge.amount !== paidInterest ||
+        (d.loanPayments || []).some(
+          (other) =>
+            other.id !== p.id && other.interestChargeId === p.interestChargeId,
+        )
+      )
+        throw Error("Invalid or duplicated recorded loan interest charge.");
+    }
+    const tx = p.transactionIds.map((id) =>
+      d.transactions.find((t) => t.id === id),
+    );
+    if (
+      tx.some((t) => !t) ||
+      new Set(tx.map((t) => t!.account)).size !== 1 ||
+      new Set(tx.map((t) => t!.date)).size !== 1
+    )
+      throw Error("Loan payment parts must share a cash account and date.");
+    for (const t of tx) {
+      if (
+        !t ||
+        loanTx.has(t.id) ||
+        t.account === p.loan ||
+        !(
+          (t.type === "transfer" && t.to === p.loan) ||
+          (t.type === "expense" && t.interest === "charged")
+        )
+      )
+        throw Error("Invalid or duplicated loan payment part.");
+      loanTx.add(t.id);
+    }
+  }
+  if (
+    new Set((d.loanPayments || []).map((p) => p.id)).size !==
+    (d.loanPayments || []).length
+  )
+    throw Error("Duplicate loan payment.");
+  for (const bundle of d.deletedTransactions || []) {
+    if (
+      !bundle.id ||
+      !Array.isArray(bundle.transactions) ||
+      !bundle.billLinks ||
+      !bundle.settlements ||
+      !Array.isArray(bundle.loanPayments)
+    )
+      throw Error("Invalid recovery record.");
   }
 }
 export function empty(): Data {

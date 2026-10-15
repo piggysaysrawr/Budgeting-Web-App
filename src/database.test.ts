@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
-import { empty } from "./ledger";
+import { empty, demo, today } from "./ledger";
+import { saveLoanPayment, recordBillPayment } from "./planning";
 test("database enforces authentication, RLS user isolation, and atomic conflict detection", async () => {
   const db = new PGlite();
   try {
@@ -19,7 +20,26 @@ test("database enforces authentication, RLS user isolation, and atomic conflict 
     await db.exec(
       `reset role;set role authenticated;set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001'`,
     );
-    const document = JSON.stringify(empty());
+    let fixture = demo();
+    fixture.accounts.push({
+      id: "loan",
+      name: "Fictional loan",
+      type: "debt",
+      opening: -500000,
+      date: today().slice(0, 7) + "-01",
+      rateBps: 625,
+    });
+    fixture = saveLoanPayment(fixture, {
+      loan: "loan",
+      account: "checking",
+      date: today(),
+      principal: 25000,
+      interest: 5000,
+      category: fixture.categories[1].id,
+    });
+    fixture = recordBillPayment(fixture, fixture.bills[0].id, 3000, today());
+    fixture.categories[2].parentId = fixture.categories[0].id;
+    const document = JSON.stringify(fixture);
     let r = await db.query<{ save_household: number }>(
       "select public.save_household($1::jsonb,0)",
       [document],
@@ -27,6 +47,10 @@ test("database enforces authentication, RLS user isolation, and atomic conflict 
     assert.equal(r.rows[0].save_household, 1);
     r = await db.query("select public.save_household($1::jsonb,1)", [document]);
     assert.equal(r.rows[0].save_household, 2);
+    const persisted = await db.query<{ data: typeof fixture }>(
+      "select data from households",
+    );
+    assert.deepEqual(persisted.rows[0].data, JSON.parse(document));
     await assert.rejects(
       db.query("select public.save_household($1::jsonb,1)", [document]),
       /another device/,

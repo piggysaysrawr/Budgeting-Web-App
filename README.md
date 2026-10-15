@@ -1,5 +1,7 @@
 # Hearth · Household budget
 
+**Feature-branch review:** see [REVIEW.md](REVIEW.md) for the budgeting improvements, safe fictional review mode, and manual checks. These changes are not merged or deployed to the live app.
+
 A working first-stage household ledger: accounts, manual income/expenses/transfers/refunds, monthly budgets, and basic bills. Read the original scope in [REQUIREMENTS.md](REQUIREMENTS.md). This release is a foundation, not completion of the full specification.
 
 ## Run locally

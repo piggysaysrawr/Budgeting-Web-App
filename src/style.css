@@ -1283,3 +1283,75 @@ td small {
   padding-left: 20px;
   line-height: 1.8;
 }
+.inline-editor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  background: var(--bg);
+  max-width: 720px;
+}
+.bill-detail {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.bill-actions {
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.bill-detail details,
+.account-insights details {
+  font-size: 12px;
+  margin: 12px 0;
+}
+.bill-detail details p {
+  margin: 8px 0;
+}
+.monthly-net {
+  margin-bottom: 24px;
+}
+.account-insights {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.loan-history {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.loan-history button {
+  margin: 5px;
+}
+.recovery {
+  margin-top: 20px;
+}
+.recovery-row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 0;
+  font-size: 12px;
+}
+.subcategory {
+  margin-left: 20px;
+  border-left: 2px solid var(--line);
+  padding-left: 15px;
+}
+.full-width {
+  width: 100%;
+}
+.import-matches {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.import-matches details {
+  font-size: 11px;
+}
+.import-matches p {
+  margin-top: 8px;
+}

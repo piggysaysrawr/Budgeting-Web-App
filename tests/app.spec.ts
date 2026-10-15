@@ -102,6 +102,7 @@ test("bill payment records one expense and next monthly occurrence remains unpai
     .click();
   page.on("dialog", (d) => d.accept(d.defaultValue()));
   await page.getByRole("button", { name: "Pay & record" }).click();
+  await page.getByRole("button", { name: "Save bill payment" }).click();
   await expect(page.getByRole("button", { name: "Pay & record" })).toHaveCount(
     1,
   );

@@ -11,3 +11,10 @@
 - Schema changes belong in supabase/schema.sql, with RLS and validation. Never weaken authorization to get a test passing.
 
 - Import tests use fictional CSV strings. Never commit real bank exports. Verify amount signs, multi-account selection, duplicate warnings, transfer direction, and storage failures for importer changes.
+
+## Budget improvements review
+
+- Keep this work on `feature/budget-improvements`; do not commit, merge, or deploy it to `main` without explicit approval.
+- Read IMPROVEMENTS.md and REVIEW.md for the additional scope and review steps. Savings goals are deferred by user choice.
+- `npm run dev:review` and `npm run build:review` disable cloud authentication and use separate fictional local data. Use review mode for destructive workflow checks; never run tests against the production household.
+- Preserve legacy paidTransaction records and existing category IDs. New optional fields must round-trip through the existing atomic household save. No live data migration has been authorized.

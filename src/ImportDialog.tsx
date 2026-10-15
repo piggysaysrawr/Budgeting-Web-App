@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Upload, ArrowLeft, Check } from "lucide-react";
-import { type Data, money, type Transaction } from "./ledger";
+import { type Data, money, balance, type Transaction } from "./ledger";
 import {
   parseCSV,
   guessMapping,
   previewRows,
-  importTransactions,
+  applyReviewedImport,
   type CSVFile,
   type Mapping,
   type ImportRow,
@@ -72,18 +72,10 @@ export function ImportDialog({
   let projected = "";
   if (rows && selected.length)
     try {
-      const ts = importTransactions(rows, account, data);
-      const delta = ts.reduce(
-        (n, t) =>
-          n +
-          (t.to === account ? t.amount : 0) +
-          (t.account === account
-            ? t.type === "income" || t.type === "refund"
-              ? t.amount
-              : -t.amount
-            : 0),
-        0,
-      );
+      const next = applyReviewedImport(rows, account, data);
+      const a = data.accounts.find((a) => a.id === account)!;
+      const delta =
+        balance(a, next.transactions) - balance(a, data.transactions);
       projected = `Balance change: ${money(delta)}`;
     } catch {
       /* shown on explicit save */
@@ -302,7 +294,11 @@ export function ImportDialog({
                   <input
                     type="checkbox"
                     checked={r.include}
-                    disabled={busy || !!r.error}
+                    disabled={
+                      busy ||
+                      !!r.error ||
+                      (!!r.exactDuplicate && (!r.action || r.action === "new"))
+                    }
                     onChange={(e) =>
                       update(r.id, { include: e.target.checked })
                     }
@@ -320,6 +316,157 @@ export function ImportDialog({
                   <p className="warning">Skipped: {r.error}</p>
                 ) : (
                   <>
+                    <div className="import-matches">
+                      <label>
+                        Import action for row {r.line}
+                        <select
+                          disabled={busy}
+                          value={r.action || "new"}
+                          onChange={(e) =>
+                            update(r.id, {
+                              action: e.target.value as ImportRow["action"],
+                              matchId: undefined,
+                              billId: undefined,
+                            })
+                          }
+                        >
+                          <option value="new" disabled={r.exactDuplicate}>
+                            Create a new transaction (review duplicates first)
+                          </option>
+                          {!!r.matches?.some(
+                            (m) => m.kind === "transaction",
+                          ) && (
+                            <option value="existing">
+                              Match existing transaction; do not create another
+                            </option>
+                          )}
+                          {!!r.matches?.some((m) => m.kind === "loan") && (
+                            <option value="loan">
+                              Match existing loan payment; do not create another
+                            </option>
+                          )}
+                          {!r.incoming && (
+                            <option value="bill">
+                              Create one payment and link a bill
+                            </option>
+                          )}
+                        </select>
+                      </label>
+                      {(r.action === "existing" || r.action === "loan") && (
+                        <label>
+                          Existing match for row {r.line}
+                          <select
+                            value={r.matchId || ""}
+                            onChange={(e) =>
+                              update(r.id, { matchId: e.target.value })
+                            }
+                          >
+                            <option value="">Choose a match to review</option>
+                            {r.matches
+                              ?.filter(
+                                (m) =>
+                                  m.kind ===
+                                  (r.action === "loan"
+                                    ? "loan"
+                                    : "transaction"),
+                              )
+                              .map((m) => (
+                                <option value={m.id} key={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                      )}
+                      {r.matches?.length ? (
+                        <details>
+                          <summary>
+                            Potential matches ({r.matches.length})
+                          </summary>
+                          {r.matches.map((m) => (
+                            <p key={m.kind + m.id}>
+                              {m.label}: {m.reason}
+                            </p>
+                          ))}
+                        </details>
+                      ) : null}
+                      {(r.action === "bill" ||
+                        r.action === "existing" ||
+                        r.action === "loan") &&
+                        !r.incoming && (
+                          <label>
+                            Link to bill for row {r.line}
+                            <select
+                              value={r.billId || ""}
+                              onChange={(e) =>
+                                update(r.id, { billId: e.target.value })
+                              }
+                            >
+                              <option value="">
+                                {r.action === "bill"
+                                  ? "Choose a bill"
+                                  : "No bill association"}
+                              </option>
+                              {data.bills
+                                .filter((b) => b.account === account)
+                                .map((b) => (
+                                  <option value={b.id} key={b.id}>
+                                    {b.date} · {b.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
+                      {(r.action || "new") === "new" &&
+                        !r.incoming &&
+                        data.accounts.some((a) => a.type === "debt") && (
+                          <label>
+                            Split as loan payment for row {r.line}
+                            <select
+                              value={r.loanId || ""}
+                              onChange={(e) =>
+                                update(r.id, { loanId: e.target.value })
+                              }
+                            >
+                              <option value="">No loan split</option>
+                              {data.accounts
+                                .filter((a) => a.type === "debt")
+                                .map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
+                      {(r.loanId ||
+                        (r.action === "bill" &&
+                          data.bills.find((b) => b.id === r.billId)
+                            ?.loanAccount)) && (
+                        <>
+                          <label>
+                            Principal for row {r.line} (USD)
+                            <input
+                              inputMode="decimal"
+                              value={r.principal || ""}
+                              onChange={(e) =>
+                                update(r.id, { principal: e.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Interest for row {r.line} (USD)
+                            <input
+                              inputMode="decimal"
+                              value={r.interest || ""}
+                              onChange={(e) =>
+                                update(r.id, { interest: e.target.value })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
+                    </div>
                     <div className="import-row-fields">
                       <label>
                         Type for row {r.line}
@@ -411,13 +558,8 @@ export function ImportDialog({
             onClick={async () => {
               setError("");
               try {
-                const txs = importTransactions(rows, account, data);
-                if (
-                  !(await onSave({
-                    ...data,
-                    transactions: [...data.transactions, ...txs],
-                  }))
-                )
+                const next = applyReviewedImport(rows, account, data);
+                if (!(await onSave(next)))
                   setError(
                     "Import was not saved. Check the error above and try again.",
                   );

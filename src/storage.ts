@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { type Data, empty } from "./ledger";
 const env = (import.meta as unknown as { env: Record<string, string> }).env;
+export const reviewMode = env.MODE === "review";
 export const cloud =
-  env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY
+  !reviewMode && env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY
     ? createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY)
     : null;
 export async function load(user: string) {
