@@ -1,5 +1,7 @@
 # Project conventions
 
+- User preference: routine changes may be committed and deployed directly on main; separate feature branches are no longer required. The historical branch review restrictions below have been superseded.
+
 - Read REQUIREMENTS.md before changing behavior. Work in this existing checkout; do not create worktrees unless requested.
 - React + TypeScript with Vite; Supabase Auth and Postgres enforce user isolation. Demo mode is fictional, local, and explicitly opt-in.
 - USD money uses integer cents. Dates use YYYY-MM-DD calendar strings; never convert ledger dates through UTC timestamps.
