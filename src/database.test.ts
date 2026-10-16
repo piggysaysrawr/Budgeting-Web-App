@@ -39,6 +39,7 @@ test("database enforces authentication, RLS user isolation, and atomic conflict 
     });
     fixture = recordBillPayment(fixture, fixture.bills[0].id, 3000, today());
     fixture.categories[2].parentId = fixture.categories[0].id;
+    fixture.debtPreferences = { creditAccountIds: ["card"] };
     const document = JSON.stringify(fixture);
     let r = await db.query<{ save_household: number }>(
       "select public.save_household($1::jsonb,0)",

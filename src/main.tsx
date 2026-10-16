@@ -1,3 +1,5 @@
+import { DebtsPanel } from "./DebtsPanel";
+import { trackedDebts } from "./debts";
 import { BillsPanel } from "./BillsPanel";
 import { BudgetPanel } from "./BudgetPanel";
 import { AccountInsights } from "./AccountInsights";
@@ -75,6 +77,7 @@ const pages = [
   "Transactions",
   "Budget",
   "Bills",
+  "Debts",
   "Accounts",
   "Savings",
   "Settings",
@@ -84,6 +87,7 @@ const icons = [
   ArrowLeftRight,
   ChartPie,
   CalendarDays,
+  Wallet,
   Wallet,
   Sprout,
   Settings,
@@ -109,6 +113,9 @@ function App() {
       | null
     >(null),
     [editing, setEditing] = useState<Transaction | undefined>(),
+    [transactionDraft, setTransactionDraft] = useState<
+      Partial<Transaction> | undefined
+    >(),
     [editingAccount, setEditingAccount] = useState<Account | undefined>(),
     [loanDialog, setLoanDialog] = useState<{
       loan: string;
@@ -264,6 +271,7 @@ function App() {
     .sort((a, b) => b.date.localeCompare(a.date));
   const limit = (id: string) => categoryLimit(data, month, id);
   function addTransaction() {
+    setTransactionDraft(undefined);
     setEditing(undefined);
     setModal("transaction");
   }
@@ -508,6 +516,8 @@ function App() {
                       Accounts: "Every balance, with a place and a purpose.",
                       Budget: "Give your month a thoughtful plan.",
                       Bills: "Keep the next due date in sight.",
+                      Debts:
+                        "Your remaining balances, with a plan for each payment.",
                       Savings: "Make space for your future.",
                       Settings: "Your workspace, your way.",
                     }[page]}
@@ -945,6 +955,7 @@ function App() {
                             <button
                               aria-label={`Edit ${t.payee}`}
                               onClick={() => {
+                                setTransactionDraft(undefined);
                                 const payment = data.loanPayments?.find((p) =>
                                   p.transactionIds.includes(t.id),
                                 );
@@ -1020,7 +1031,58 @@ function App() {
             />
           )}
           {page === "Bills" && (
-            <BillsPanel data={data} busy={busy} onSave={commit} />
+            <BillsPanel
+              data={data}
+              busy={busy}
+              onSave={commit}
+              scope="ordinary"
+              debtAccountIds={trackedDebts(data).map((a) => a.id)}
+            />
+          )}
+          {page === "Debts" && (
+            <DebtsPanel
+              data={data}
+              month={month}
+              busy={busy}
+              onSave={commit}
+              onAdd={() => {
+                setEditingAccount(undefined);
+                setError("");
+                setModal("account");
+              }}
+              onEdit={(a) => {
+                setEditingAccount(a);
+                setError("");
+                setModal("account");
+              }}
+              onPay={(a) => {
+                setError("");
+                if (a.type === "credit") {
+                  setEditing(undefined);
+                  setTransactionDraft({
+                    type: "transfer",
+                    to: a.id,
+                    account: data.accounts.find((x) =>
+                      ["checking", "savings", "cash"].includes(x.type),
+                    )?.id,
+                    payee: `Payment to ${a.name}`,
+                  });
+                  setModal("transaction");
+                } else {
+                  setLoanDialog({ loan: a.id });
+                  setModal("loanPayment");
+                }
+              }}
+              onEditPayment={(loan, id) => {
+                setLoanDialog({ loan, payment: id });
+                setModal("loanPayment");
+                setError("");
+              }}
+              onDeletePayment={(id) => {
+                const t = data.transactions.find((t) => t.id === id);
+                if (t) void deleteTransaction(t);
+              }}
+            />
           )}
           {page === "Savings" && (
             <section className="panel">
@@ -1133,8 +1195,12 @@ function App() {
                           : "Add transaction"
                         : modal === "account"
                           ? editingAccount
-                            ? "Edit account"
-                            : "Add account"
+                            ? page === "Debts"
+                              ? "Edit debt"
+                              : "Edit account"
+                            : page === "Debts"
+                              ? "Add debt"
+                              : "Add account"
                           : "Add bill"}
               </h2>
               <button
@@ -1193,8 +1259,10 @@ function App() {
             ) : (
               <EntryForm
                 kind={modal}
+                debtOnly={page === "Debts"}
                 data={data}
                 editing={editing}
+                draft={transactionDraft}
                 initialAccount={
                   modal === "account" ? editingAccount : undefined
                 }
@@ -1237,7 +1305,9 @@ function EntryForm({
   kind,
   data,
   editing,
+  draft,
   initialAccount,
+  debtOnly = false,
   busy,
   onSave,
   onError,
@@ -1245,12 +1315,14 @@ function EntryForm({
   kind: string;
   data: Data;
   editing?: Transaction;
+  draft?: Partial<Transaction>;
   initialAccount?: Account;
+  debtOnly?: boolean;
   busy: boolean;
   onSave: (d: Data) => Promise<void>;
   onError: (s: string) => void;
 }) {
-  const [type, setType] = useState(editing?.type || "expense");
+  const [type, setType] = useState(editing?.type || draft?.type || "expense");
   const [accountType, setAccountType] = useState(
     initialAccount?.type || "checking",
   );
@@ -1302,6 +1374,21 @@ function EntryForm({
               return;
             next = {
               ...data,
+              debtPreferences:
+                data.debtPreferences || (debtOnly && a.type === "credit")
+                  ? {
+                      creditAccountIds: [
+                        ...new Set([
+                          ...(
+                            data.debtPreferences?.creditAccountIds || []
+                          ).filter((id) => id !== a.id || a.type === "credit"),
+                          ...(!initialAccount && debtOnly && a.type === "credit"
+                            ? [a.id]
+                            : []),
+                        ]),
+                      ],
+                    }
+                  : undefined,
               accounts: initialAccount
                 ? data.accounts.map((x) => (x.id === a.id ? a : x))
                 : [...data.accounts, a],
@@ -1374,7 +1461,7 @@ function EntryForm({
             <input
               autoFocus
               name="payee"
-              defaultValue={editing?.payee}
+              defaultValue={editing?.payee || draft?.payee}
               required
               maxLength={120}
             />
@@ -1403,7 +1490,10 @@ function EntryForm({
                 setAccountType(e.target.value as Account["type"])
               }
             >
-              {["checking", "savings", "cash", "credit", "debt"].map((t) => (
+              {(debtOnly
+                ? ["debt", "credit"]
+                : ["checking", "savings", "cash", "credit", "debt"]
+              ).map((t) => (
                 <option key={t}>{t}</option>
               ))}
             </select>
@@ -1479,7 +1569,9 @@ function EntryForm({
             />
           </label>
           <label>
-            Expected monthly loan payment (USD)
+            {accountType === "credit"
+              ? "Expected monthly card payment (USD)"
+              : "Expected monthly loan payment (USD)"}
             <input
               name="expectedPayment"
               inputMode="decimal"
@@ -1512,11 +1604,11 @@ function EntryForm({
           type === "transfer" && kind === "transaction"
             ? "From account"
             : "Account",
-          editing?.account,
+          editing?.account || draft?.account,
         )}
       {kind === "transaction" &&
         type === "transfer" &&
-        accountSelect("to", "To account", editing?.to)}
+        accountSelect("to", "To account", editing?.to || draft?.to)}
       {(kind === "bill" ||
         (kind === "transaction" &&
           (type === "expense" || type === "refund"))) && (
@@ -1553,7 +1645,9 @@ function EntryForm({
         </label>
       )}
       <button className="primary" disabled={busy}>
-        {busy ? "Saving…" : "Save " + kind}
+        {busy
+          ? "Saving…"
+          : "Save " + (debtOnly && kind === "account" ? "debt" : kind)}
       </button>
     </form>
   );

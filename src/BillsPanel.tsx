@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { type Data, type Bill, cents, uid, today, money } from "./ledger";
 import {
   billLinks,
@@ -18,16 +18,37 @@ export function BillsPanel({
   data,
   busy,
   onSave,
+  scope = "all",
+  debtAccountIds = [],
+  selectedDebtId,
 }: {
   data: Data;
   busy: boolean;
   onSave: (d: Data) => Promise<boolean>;
+  scope?: "all" | "ordinary" | "debts";
+  debtAccountIds?: string[];
+  selectedDebtId?: string;
 }) {
   const [editing, setEditing] = useState<string | null>(null),
     [paying, setPaying] = useState<string | null>(null),
     [reopening, setReopening] = useState<string | null>(null),
     [error, setError] = useState("");
-  const selected = data.bills.find((b) => b.id === paying);
+  const visibleBills = data.bills.filter(
+    (b) =>
+      scope === "all" ||
+      (scope === "ordinary"
+        ? !debtAccountIds.includes(b.loanAccount || "")
+        : debtAccountIds.includes(b.loanAccount || "") &&
+          (!selectedDebtId || b.loanAccount === selectedDebtId)),
+  );
+  const selected = visibleBills.find((b) => b.id === paying);
+  const debtFilterKey = debtAccountIds.join(",");
+  useEffect(() => {
+    setEditing(null);
+    setPaying(null);
+    setReopening(null);
+    setError("");
+  }, [scope, selectedDebtId, debtFilterKey]);
   async function store(next: Data) {
     const ok = await onSave(next);
     if (ok) {
@@ -42,7 +63,11 @@ export function BillsPanel({
     <section className="panel">
       <div className="panel-title">
         <div>
-          <h2>Bills & due dates</h2>
+          <h2>
+            {scope === "debts"
+              ? "Debt payments & due dates"
+              : "Bills & due dates"}
+          </h2>
           <p>
             Expected amounts stay separate from recorded payments. Editing bills
             never rewrites their transactions.
@@ -54,9 +79,13 @@ export function BillsPanel({
             setPaying(null);
             setError("");
           }}
-          disabled={busy || !data.accounts.length}
+          disabled={
+            busy ||
+            !data.accounts.length ||
+            (scope === "debts" && !debtAccountIds.length)
+          }
         >
-          Add bill
+          {scope === "debts" ? "Add debt payment schedule" : "Add bill"}
         </button>
       </div>
       {error && (
@@ -72,6 +101,9 @@ export function BillsPanel({
           busy={busy}
           onCancel={() => setEditing(null)}
           onSave={store}
+          debtOnly={scope === "debts"}
+          debtAccountIds={debtAccountIds}
+          defaultDebtId={selectedDebtId || debtAccountIds[0]}
         />
       )}
       {selected &&
@@ -97,7 +129,7 @@ export function BillsPanel({
             onCancel={() => setPaying(null)}
           />
         ))}
-      {[...data.bills]
+      {[...visibleBills]
         .sort((a, b) => a.date.localeCompare(b.date))
         .map((b) => {
           const status = billStatus(data, b),
@@ -230,9 +262,11 @@ export function BillsPanel({
             </article>
           );
         })}
-      {!data.bills.length && (
+      {!visibleBills.length && (
         <p className="empty">
-          Add your first bill. Autopay does not prove payment.
+          {scope === "debts"
+            ? "No scheduled payments for these debts. Add a schedule to track due dates and actual payments."
+            : "Add your first bill. Autopay does not prove payment."}
         </p>
       )}
       <p className="small">
@@ -248,12 +282,18 @@ function BillEditor({
   busy,
   onCancel,
   onSave,
+  debtOnly = false,
+  debtAccountIds = [],
+  defaultDebtId,
 }: {
   data: Data;
   bill?: Bill;
   busy: boolean;
   onCancel: () => void;
   onSave: (d: Data) => Promise<boolean>;
+  debtOnly?: boolean;
+  debtAccountIds?: string[];
+  defaultDebtId?: string;
 }) {
   const [error, setError] = useState("");
   return (
@@ -273,6 +313,12 @@ function BillEditor({
             frequency: String(f.get("frequency")) as Bill["frequency"],
             loanAccount: String(f.get("loan")) || undefined,
           };
+          if (debtOnly && !patch.loanAccount)
+            throw Error("Choose the debt this schedule pays.");
+          if (patch.loanAccount === patch.account)
+            throw Error(
+              "The payment account and debt account must be different.",
+            );
           const next = bill
             ? editBill(
                 data,
@@ -293,14 +339,22 @@ function BillEditor({
         }
       }}
     >
-      <h3>{bill ? "Edit bill" : "Add bill"}</h3>
+      <h3>
+        {debtOnly
+          ? bill
+            ? "Edit debt payment schedule"
+            : "Add debt payment schedule"
+          : bill
+            ? "Edit bill"
+            : "Add bill"}
+      </h3>
       {error && (
         <p role="alert" className="alert">
           {error}
         </p>
       )}
       <label>
-        Bill name
+        {debtOnly ? "Payment schedule name" : "Bill name"}
         <input name="name" defaultValue={bill?.name} required maxLength={120} />
       </label>
       <label>
@@ -333,7 +387,17 @@ function BillEditor({
       </label>
       <label>
         Payment account
-        <select name="account" defaultValue={bill?.account}>
+        <select
+          name="account"
+          defaultValue={
+            bill?.account ||
+            (debtOnly
+              ? data.accounts.find((a) =>
+                  ["checking", "savings", "cash"].includes(a.type),
+                )?.id
+              : undefined)
+          }
+        >
           {data.accounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -355,11 +419,23 @@ function BillEditor({
         </select>
       </label>
       <label>
-        Tracked loan or credit card payment (optional)
-        <select name="loan" defaultValue={bill?.loanAccount || ""}>
-          <option value="">Ordinary bill</option>
+        {debtOnly
+          ? "Debt account"
+          : "Tracked loan or credit card payment (optional)"}
+        <select
+          name="loan"
+          defaultValue={bill?.loanAccount || (debtOnly ? defaultDebtId : "")}
+          required={debtOnly}
+        >
+          <option value="">
+            {debtOnly ? "Choose a debt" : "Ordinary bill"}
+          </option>
           {data.accounts
-            .filter((a) => ["debt", "credit"].includes(a.type))
+            .filter(
+              (a) =>
+                ["debt", "credit"].includes(a.type) &&
+                (!debtOnly || debtAccountIds.includes(a.id)),
+            )
             .map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -381,7 +457,7 @@ function BillEditor({
           Cancel
         </button>
         <button disabled={busy} className="primary">
-          Save bill
+          {debtOnly ? "Save payment schedule" : "Save bill"}
         </button>
       </div>
     </form>

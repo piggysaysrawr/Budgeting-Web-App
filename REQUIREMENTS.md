@@ -117,3 +117,10 @@ Project scope
 - Allow deleting accounts after explicit typed confirmation. Explain removal of linked transactions/bills and effects on other balances before saving.
 - Remove all account references atomically, including transfers in either direction. Reopen retained bills when their linked payment is removed.
 - Recalculate balances and totals; cancel and storage failures must preserve all data. Never delete an actual bank account or the household login.
+
+## Added requirement: Debts tab
+
+- Add a separate view similar to Bills that also shows recorded remaining loan/debt balances.
+- Include credit cards individually when desired; paid-in-full cards need not appear there.
+- Reuse existing principal/interest, transfer, scheduling, and history calculations so no debt or payment is counted twice.
+- Keep debt schedules accessible and retain dashboard reminders, account data, and past financial transactions.

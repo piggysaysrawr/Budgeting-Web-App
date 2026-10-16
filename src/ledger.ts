@@ -66,6 +66,7 @@ export type Data = {
   categories: Category[];
   bills: Bill[];
   budgets: Record<string, Record<string, number>>;
+  debtPreferences?: { creditAccountIds: string[] };
   loanPayments?: LoanPayment[];
   deletedTransactions?: DeletedTransactions[];
 };
@@ -364,6 +365,17 @@ export function validate(d: Data) {
       !Array.isArray(bundle.loanPayments)
     )
       throw Error("Invalid recovery record.");
+  }
+  if (d.debtPreferences) {
+    const ids = d.debtPreferences.creditAccountIds;
+    if (
+      !Array.isArray(ids) ||
+      new Set(ids).size !== ids.length ||
+      ids.some(
+        (id) => !d.accounts.some((a) => a.id === id && a.type === "credit"),
+      )
+    )
+      throw Error("Invalid tracked credit cards.");
   }
 }
 export function empty(): Data {
