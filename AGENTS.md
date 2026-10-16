@@ -18,3 +18,9 @@
 - Read IMPROVEMENTS.md and REVIEW.md for the additional scope and review steps. Savings goals are deferred by user choice.
 - `npm run dev:review` and `npm run build:review` disable cloud authentication and use separate fictional local data. Use review mode for destructive workflow checks; never run tests against the production household.
 - Preserve legacy paidTransaction records and existing category IDs. New optional fields must round-trip through the existing atomic household save. No live data migration has been authorized.
+
+## Debts tab review
+
+- The earlier budget-improvements branch was merged as PR #1. Current Debts tab work belongs on `feature/debts-tab`; do not merge or publish to main without approval.
+- See DEBTS_REVIEW.md. Loans are shown by default; credit cards are individually optional. Reuse the account/transaction/bill ledger rather than duplicating liabilities or payment records.
+- Preserve cloud-disabled review mode for tests and any downloadable review build. No production data migration is authorized.

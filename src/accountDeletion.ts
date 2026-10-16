@@ -36,6 +36,14 @@ export function planAccountDeletion(data: Data, accountId: string) {
   const next: Data = {
     ...data,
     accounts: data.accounts.filter((a) => a.id !== accountId),
+    debtPreferences: data.debtPreferences
+      ? {
+          ...data.debtPreferences,
+          creditAccountIds: data.debtPreferences.creditAccountIds.filter(
+            (id) => id !== accountId,
+          ),
+        }
+      : undefined,
     transactions: data.transactions.filter((t) => !removedIds.has(t.id)),
     loanPayments: data.loanPayments?.filter(
       (p) => !groups.some((g) => g.id === p.id),

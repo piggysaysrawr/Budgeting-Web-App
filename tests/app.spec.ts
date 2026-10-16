@@ -20,6 +20,7 @@ test("dashboard, navigation and phone layout", async ({ page }, info) => {
     "Transactions",
     "Budget",
     "Bills",
+    "Debts",
     "Accounts",
     "Savings",
     "Settings",

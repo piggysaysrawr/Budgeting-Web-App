@@ -1,7 +1,7 @@
 name: Review budget improvements
 on:
   push:
-    branches: [feature/budget-improvements]
+    branches: [feature/budget-improvements, feature/debts-tab]
   workflow_dispatch:
 permissions:
   contents: read
