@@ -114,3 +114,9 @@ Browser configuration uses `/usr/bin/chromium` in this cloud workspace. For anot
 4. **Goals and reporting:** non-overlapping savings allocations, dated goal targets, category/month/job reports with accessible charts.
 
 The Savings screen explicitly labels goal planning as upcoming. No push/email reminders, hosting, or production authentication are claimed to work until separately configured and tested.
+
+### Automatic budget minimums
+
+Bills and debt payment schedules automatically set a floor in their assigned budget categories for each month they are due, including future recurring occurrences. Paid bills stay in that month's plan. Set a higher limit to leave extra room; smaller limits show the required minimum. Edit or delete the schedule to change its contribution. Copy previous month copies manual overrides and recalculates that month's schedules.
+
+Budget usage shows spending plus transfers explicitly linked to debt schedules. Unlinked transfers do not use a repayment category; link existing payments through the schedule to include them. Credit-card payments and loan principal remain transfers in spending reports, and interest remains an expense. Purchases and debt repayments may both need planned room in their respective categories; scheduled amounts do not create transactions.

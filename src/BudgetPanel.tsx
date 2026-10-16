@@ -2,6 +2,9 @@ import { useState } from "react";
 import { type Data, cents, uid, money, validate } from "./ledger";
 import {
   categorySpending,
+  categoryBudgetUsed,
+  categoryDebtPayments,
+  scheduledMinimum,
   categoryLimit,
   deleteCategory,
   totalBudget,
@@ -45,8 +48,8 @@ export function BudgetPanel({
         <div>
           <h2>Monthly category limits</h2>
           <p>
-            Parent spending includes its subcategories once. Parent limits are
-            not added again to child limits. Total plan:{" "}
+            Scheduled bills and debt payments set a minimum you can increase.
+            Parent limits are not added again to child limits. Total plan:{" "}
             {money(totalBudget(data, month))}.
           </p>
         </div>
@@ -68,14 +71,7 @@ export function BudgetPanel({
             ...data,
             budgets: {
               ...data.budgets,
-              [month]:
-                data.budgets[prev] ||
-                Object.fromEntries(
-                  data.categories.map((c) => [
-                    c.id,
-                    categoryLimit(data, prev, c.id),
-                  ]),
-                ),
+              [month]: { ...(data.budgets[prev] || {}) },
             },
           });
         }}
@@ -153,10 +149,23 @@ export function BudgetPanel({
             {c.name}
             {c.archived ? " (archived)" : ""}
           </strong>
-          <span>Spent {money(categorySpending(data, month, c.id))}</span>
+          <span>
+            Spent {money(categorySpending(data, month, c.id))}
+            {categoryDebtPayments(data, month, c.id) > 0 && (
+              <>
+                {" "}
+                · Debt transfers{" "}
+                {money(categoryDebtPayments(data, month, c.id))}
+              </>
+            )}
+            <small className="small">
+              {" "}
+              · Scheduled minimum {money(scheduledMinimum(data, month, c.id))}
+            </small>
+          </span>
           <span
             className={
-              categorySpending(data, month, c.id) >
+              categoryBudgetUsed(data, month, c.id) >
               categoryLimit(data, month, c.id)
                 ? "warning"
                 : ""
@@ -165,9 +174,9 @@ export function BudgetPanel({
             Remaining{" "}
             {money(
               categoryLimit(data, month, c.id) -
-                categorySpending(data, month, c.id),
+                categoryBudgetUsed(data, month, c.id),
             )}
-            {categorySpending(data, month, c.id) >
+            {categoryBudgetUsed(data, month, c.id) >
             categoryLimit(data, month, c.id)
               ? " · Over budget"
               : ""}
@@ -182,6 +191,21 @@ export function BudgetPanel({
                 else {
                   const value = cents(raw);
                   if (value < 0) throw Error("Limit cannot be negative.");
+                  const floor = categoryLimit(
+                    {
+                      ...data,
+                      budgets: {
+                        ...data.budgets,
+                        [month]: { ...data.budgets[month], [c.id]: 0 },
+                      },
+                    },
+                    month,
+                    c.id,
+                  );
+                  if (value < floor)
+                    throw Error(
+                      `This category needs at least ${money(floor)} for scheduled payments and subcategories.`,
+                    );
                   limits[c.id] = value;
                 }
                 void store({
@@ -273,9 +297,11 @@ export function BudgetPanel({
         </article>
       ))}
       <p className="small">
-        Clear a monthly limit to use its default. A parent with a zero default
-        and no monthly override uses the sum of its children’s limits; an
-        explicit parent limit is the total envelope, not an extra allocation.
+        Clear a monthly limit to use its default or scheduled minimum. Paid
+        schedules stay in the plan; debt transfers use budget room but are not
+        spending. A parent with a zero default and no monthly override uses the
+        sum of its children’s limits; an explicit parent limit is the total
+        envelope, not an extra allocation.
       </p>
     </section>
   );

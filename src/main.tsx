@@ -8,7 +8,8 @@ import {
   billStatus,
   billLinks,
   billPaymentTotal,
-  categorySpending,
+  categoryBudgetUsed,
+  totalBudgetUsed,
   categoryLimit,
   categoryIds,
   totalBudget,
@@ -588,8 +589,10 @@ function App() {
                 />
                 <Stat
                   title="BUDGET REMAINING"
-                  value={money(totalBudget(data, month) - total.spent)}
-                  detail="Your plan, separate from balances"
+                  value={money(
+                    totalBudget(data, month) - totalBudgetUsed(data, month),
+                  )}
+                  detail="After spending and linked debt transfers"
                   icon={<ChartPie />}
                 />
               </div>
@@ -614,7 +617,7 @@ function App() {
                 <section className="panel budget-panel">
                   <PanelTitle
                     title="Your monthly plan"
-                    sub="A little intention goes a long way."
+                    sub="Includes scheduled minimums and linked debt transfers."
                     action="View budget"
                     onClick={() => setPage("Budget")}
                   />
@@ -622,7 +625,7 @@ function App() {
                     .filter((c) => !c.archived && !c.parentId)
                     .slice(0, 5)
                     .map((c, i) => {
-                      const used = categorySpending(data, month, c.id),
+                      const used = categoryBudgetUsed(data, month, c.id),
                         max = limit(c.id);
                       return (
                         <div className="budget-row" key={c.id}>

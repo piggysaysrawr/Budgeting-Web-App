@@ -315,6 +315,7 @@ test("parent spending rolls up once; parent and child budgets are not doubled", 
   const d = setup(),
     parent = d.categories[0],
     child = d.categories[2];
+  d.bills = []; // Isolate manual envelope behavior from scheduled minimums.
   child.parentId = parent.id;
   parent.limit = 30000;
   child.limit = 10000;

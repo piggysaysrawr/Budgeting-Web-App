@@ -570,15 +570,92 @@ export function categorySpending(data: Data, month: string, id: string) {
       0,
     );
 }
+// Expand each stored series only until its next stored occurrence. Paid bills
+// remain planned, and materializing the next occurrence never doubles a month.
+export function scheduledMinimum(
+  data: Data,
+  month: string,
+  id: string,
+): number {
+  const ids = categoryIds(data, id);
+  const end = month + "-31";
+  let total = 0;
+  for (const bill of data.bills) {
+    if (bill.date > end) continue;
+    const nextStored = data.bills
+      .filter(
+        (b) =>
+          b.id !== bill.id &&
+          (b.seriesId || b.id) === (bill.seriesId || bill.id) &&
+          b.date > bill.date,
+      )
+      .sort((a, b) => a.date.localeCompare(b.date))[0]?.date;
+    let occurrence = bill;
+    while (
+      occurrence.date <= end &&
+      (!nextStored || occurrence.date < nextStored)
+    ) {
+      if (
+        occurrence.date.startsWith(month) &&
+        ids.includes(occurrence.category)
+      )
+        total += occurrence.amount;
+      const date = nextOccurrence(occurrence);
+      if (!date || date <= occurrence.date) break;
+      occurrence = { ...occurrence, date };
+    }
+  }
+  return total;
+}
+// Transfers consume a repayment budget only when explicitly linked to a debt
+// schedule. Ordinary transfers and credit-card purchases retain ledger semantics.
+export function categoryDebtPayments(data: Data, month: string, id: string) {
+  const ids = categoryIds(data, id);
+  const links = new Set(
+    data.bills
+      .filter((b) => b.loanAccount && ids.includes(b.category))
+      .flatMap(billLinks),
+  );
+  return data.transactions
+    .filter(
+      (t) =>
+        t.type === "transfer" && t.date.startsWith(month) && links.has(t.id),
+    )
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+export const categoryBudgetUsed = (data: Data, month: string, id: string) =>
+  categorySpending(data, month, id) + categoryDebtPayments(data, month, id);
+export const totalBudgetUsed = (data: Data, month: string) =>
+  data.categories
+    .filter((c) => !c.parentId)
+    .reduce((sum, c) => sum + categoryBudgetUsed(data, month, c.id), 0);
+
 export function categoryLimit(data: Data, month: string, id: string): number {
   const c = data.categories.find((c) => c.id === id);
   if (!c) return 0;
-  if (Object.hasOwn(data.budgets[month] || {}, id))
-    return data.budgets[month][id];
   const children = data.categories.filter((x) => x.parentId === id);
-  return c.limit || !children.length
-    ? c.limit
-    : children.reduce((n, c) => n + categoryLimit(data, month, c.id), 0);
+  const childLimits = children.reduce(
+    (n, child) => n + categoryLimit(data, month, child.id),
+    0,
+  );
+  const manual = Object.hasOwn(data.budgets[month] || {}, id)
+    ? data.budgets[month][id]
+    : c.limit || childLimits;
+  // An implicit parent rolls up child envelopes plus direct schedules. An
+  // explicit parent keeps its envelope, subject to all scheduled minimums.
+  const directMinimum =
+    scheduledMinimum(data, month, id) -
+    children.reduce(
+      (n, child) => n + scheduledMinimum(data, month, child.id),
+      0,
+    );
+  return Math.max(
+    manual,
+    scheduledMinimum(data, month, id),
+    Object.hasOwn(data.budgets[month] || {}, id) || c.limit
+      ? 0
+      : childLimits + directMinimum,
+  );
 }
 export const totalBudget = (data: Data, month: string) =>
   data.categories

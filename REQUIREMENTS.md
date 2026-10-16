@@ -124,3 +124,11 @@ Project scope
 - Include credit cards individually when desired; paid-in-full cards need not appear there.
 - Reuse existing principal/interest, transfer, scheduling, and history calculations so no debt or payment is counted twice.
 - Keep debt schedules accessible and retain dashboard reminders, account data, and past financial transactions.
+
+## Added requirement: automatic budget minimums
+
+- Scheduled bills and debt payments set a minimum monthly amount in their existing categories, based on due dates and recurring frequency. Users may set a higher total budget; a lower entered limit must explain the required minimum.
+- Include paid and partially paid schedules in the original monthly plan. Avoid duplicating occurrences as recurring bills advance.
+- Roll subcategory scheduled minimums into parents once. Preserve explicit parent envelopes, subject to the combined scheduled minimum.
+- Show linked debt-payment transfers separately from spending in budget usage. Principal and card payments remain transfers in account balances and expense reports.
+- Derive minimums from current schedules without rewriting stored budgets or requiring a database migration. Copying a month copies manual overrides and recalculates scheduled minimums for the destination month.
